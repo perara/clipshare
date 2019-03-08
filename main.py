@@ -1,9 +1,9 @@
+import errno
 import socket
 import struct
 from lz4.block import compress, decompress
 import pyperclip
 import asyncio
-
 
 MCAST_GRP = '224.1.1.1'
 MCAST_PORT = 5007
@@ -19,21 +19,13 @@ class MulticastReceiver(asyncio.DatagramProtocol):
         self.transport = transport
 
     def datagram_received(self, data, addr):
-        print(decompress(data).decode('utf-8'))
         pyperclip.copy(decompress(data).decode('utf-8'))
 
 
 class MulticastSender:
     def __init__(self):
-        # regarding socket.IP_MULTICAST_TTL
-        # ---------------------------------
-        # for all packets sent, after two hops on the network the packet will not
-        # be re-sent/broadcast (see https://www.tldp.org/HOWTO/Multicast-HOWTO-6.html)
-        MULTICAST_TTL = 10
-
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
-        sock.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_TTL, MULTICAST_TTL)
-
+        sock.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_TTL, 1)
         self.sock = sock
 
     def send(self, msg):
@@ -50,10 +42,13 @@ class Clipboard:
         self.sender = MulticastSender()
 
     async def clipboard_listener(self):
+
         while True:
 
             curr = pyperclip.paste()
+
             if curr != self._current_clipboard:
+                print("Setting Clipboard")
                 self._current_clipboard = curr
                 self._handled = True
                 self.sender.send(curr.encode("utf-8"))
@@ -69,7 +64,7 @@ class Clipboard:
         else:
             # on this port, listen ONLY to MCAST_GRP
             sock.bind((MCAST_GRP, MCAST_PORT))
-        mreq = struct.pack("4sl", socket.inet_aton(MCAST_GRP), "224.1.1.1") # socket.INADDR_ANY
+        mreq = struct.pack("4sl", socket.inet_aton(MCAST_GRP), socket.INADDR_ANY)
         sock.setsockopt(socket.IPPROTO_IP, socket.IP_ADD_MEMBERSHIP, mreq)
 
         return await self.loop.create_datagram_endpoint(
